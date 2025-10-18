@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ADDED BY USER
+# Python / env
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+
+# Logs
+*.log
+client/runlog.jsonl
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
