@@ -6,6 +6,7 @@ let ws;
 let reconnectTimer;
 const WS_URL = "ws://127.0.0.1:8765";
 const RETRY_MS = 1500;
+const actionTypes = ["waitFor", "query", "click", "type", "scroll"];
 
 let activeTabId = null;
 
@@ -67,28 +68,35 @@ function connectWS() {
 async function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function ensureContentScript(tabId) {
-    // Quick ping to check if the content script is ready
     try {
-        const resp = await chrome.tabs.sendMessage(tabId, { type: "adapter:ping" });
-        if (resp && resp.ok) return true;
-    } catch (e) {
-        // No receiver — we'll inject
-    }
+        const pong = await chrome.tabs.sendMessage(tabId, { type: "adapter:ping" });
+        if (pong && pong.ok) return true;
+    } catch (_) { /* no receiver yet */ }
 
-    // Programmatic injection (requires "scripting" permission)
     try {
-        await chrome.scripting.executeScript({
-            target: { tabId },
-            files: ["contentScript.js"]
-        });
+        await chrome.scripting.executeScript({ target: { tabId }, files: ["contentScript.js"] });
     } catch (e) {
-        console.warn("[Adapter] executeScript failed:", e);
-        // If executeScript fails because CS is already there, continue anyway
+        console.warn("[Adapter] executeScript (inject CS) error:", e);
     }
-
-    // Give it a moment to initialize and register its onMessage listener
     await delay(150);
     return true;
+}
+
+async function sendToContentWithRetry(tabId, payload, attempts = 2) {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            const resp = await chrome.tabs.sendMessage(tabId, payload);
+            return resp; // may be undefined if CS uses chrome.runtime.sendMessage; that's ok
+        } catch (e) {
+            if (String(e?.message || e).includes("Receiving end does not exist")) {
+                await ensureContentScript(tabId);
+                await delay(150);
+                continue; // retry
+            }
+            throw e;
+        }
+    }
+    throw new Error("no_receiver_after_retry");
 }
 
 async function getOrCreateActiveTab() {
@@ -141,13 +149,25 @@ async function handleControllerCommand(msg) {
         }
 
         // Commands that need DOM access → content script
-        if (["waitFor", "query", "click", "type", "scroll"].includes(cmd)) {
+        if (actionTypes.includes(cmd)) {
             const tabId = activeTabId ?? (await getOrCreateActiveTab());
 
             await ensureContentScript(tabId);
 
-            const resp = await chrome.tabs.sendMessage(tabId, { type: "adapter:cmd", id, cmd, args });
-            wsSend(resp); // should be {id, ok, data? , error?}
+            // fire request to CS with retry
+            let resp;
+            try {
+                resp = await sendToContentWithRetry(tabId, { type: "adapter:cmd", id, cmd, args }, 2);
+            } catch (e) {
+                wsSend({ id, ok: false, error: String(e?.message || e) });
+                return;
+            }
+
+            // Only forward if we actually got a direct response; otherwise,
+            // the CS will forward asynchronously via chrome.runtime.sendMessage
+            if (resp !== undefined) {
+                wsSend(resp);
+            }
             return;
         }
 

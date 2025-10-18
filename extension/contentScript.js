@@ -66,14 +66,22 @@ function typeText(el, text, submit) {
     return true;
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    // ping from background to check CS presence
+    if (msg?.type === "adapter:ping") {
+        sendResponse({ ok: true, type: "adapter:pong" });
+        return; // no async; don't return true
+    }
+
+    if (msg?.type !== "adapter:cmd") return;
+
+    const { id, cmd, args = {} } = msg;
+
     (async () => {
-        if (msg?.type !== "adapter:cmd") return;
-        const { id, cmd, args = {} } = msg;
         try {
             if (cmd === "waitFor") {
                 await waitForSelector(args.selector, args.timeoutMs || 10000);
-                chrome.runtime.sendMessage({ id, ok: true, data: { waitedFor: args.selector } });
+                sendResponse({ id, ok: true, data: { waitedFor: args.selector } });
                 return;
             }
 
@@ -81,11 +89,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
                 const { selector, all = false, attr = null, limit = null } = args;
                 if (!selector) throw new Error("missing_selector");
                 const nodes = all ? selectAll(selector) : [selectOne(selector)].filter(Boolean);
-                let out;
-                if (attr) out = nodes.map(n => n?.getAttribute(attr) ?? null);
-                else out = nodes.map(n => (n?.innerText ?? "").trim());
-                if (limit && Number.isInteger(limit)) out = out.slice(0, limit);
-                chrome.runtime.sendMessage({ id, ok: true, data: { results: out } });
+                let out = attr ? nodes.map(n => n?.getAttribute(attr) ?? null)
+                    : nodes.map(n => (n?.innerText ?? "").trim());
+                if (Number.isInteger(limit)) out = out.slice(0, limit);
+                sendResponse({ id, ok: true, data: { results: out } });
                 return;
             }
 
@@ -94,23 +101,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
                 if (selector) {
                     const el = selectOne(selector);
                     safeClick(el);
-                    chrome.runtime.sendMessage({ id, ok: true, data: { clicked: selector } });
+                    sendResponse({ id, ok: true, data: { clicked: selector } });
                     return;
                 } else if (xy) {
                     const el = document.elementFromPoint(xy.x, xy.y);
                     safeClick(el);
-                    chrome.runtime.sendMessage({ id, ok: true, data: { clickedXY: xy } });
+                    sendResponse({ id, ok: true, data: { clickedXY: xy } });
                     return;
-                } else {
-                    throw new Error("missing_selector_or_xy");
                 }
+                throw new Error("missing_selector_or_xy");
             }
 
             if (cmd === "type") {
                 const { selector, text, submit } = args;
                 const el = selectOne(selector);
                 typeText(el, text, submit);
-                chrome.runtime.sendMessage({ id, ok: true, data: { typed: text?.length || 0 } });
+                sendResponse({ id, ok: true, data: { typed: (text || "").length } });
                 return;
             }
 
@@ -120,20 +126,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
                     const el = selectOne(selector);
                     if (!el) throw new Error("element_not_found");
                     el.scrollIntoView({ behavior: "smooth", block: "center" });
-                } else if (to === "top") window.scrollTo({ top: 0, behavior: "smooth" });
-                else if (to === "bottom") window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-                chrome.runtime.sendMessage({ id, ok: true, data: { scrolled: true } });
+                } else if (to === "top") {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                } else if (to === "bottom") {
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+                }
+                sendResponse({ id, ok: true, data: { scrolled: true } });
                 return;
             }
 
-            chrome.runtime.sendMessage({ id, ok: false, error: "unknown_command" });
+            sendResponse({ id, ok: false, error: "unknown_command" });
         } catch (e) {
-            chrome.runtime.sendMessage({ id, ok: false, error: String(e?.message || e) });
+            sendResponse({ id, ok: false, error: String(e?.message || e) });
         }
     })();
 
-    // We respond asynchronously via chrome.runtime.sendMessage back to background
-    // so return true would be for sendResponse path; we don't use it here.
+    // Tell Chrome we're replying asynchronously
+    return true;
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
