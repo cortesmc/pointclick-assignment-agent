@@ -7,15 +7,28 @@ def _id():
 def plan_from_text(task: str) -> Plan:
     t = task.lower().strip()
 
-    # Simple intents (expand as you like)
+    # Hugging face papers
     if "hugging face" in t or "huggingface" in t:
-        # open HF papers and get latest link
         steps = [
             Command(id=_id(), cmd="navigate", args={"url": "https://huggingface.co/papers"}),
             Command(id=_id(), cmd="waitFor", args={"selector": "main section article", "timeoutMs": 15000}),
-            Command(id=_id(), cmd="query", args={"selector": "main section article:nth-of-type(1) a[href^='/papers/']", "all": False, "attr": "href"}),
+            # href of first paper (kept)
+            Command(id=_id(), cmd="query", args={
+                "selector": "main section article:nth-of-type(1) a[href^='/papers/']",
+                "all": False, "attr": "href"
+            }),
+            # title text fallbacks on the card:
+            Command(id=_id(), cmd="query", args={
+                "selector": "main section article:nth-of-type(1) a[href^='/papers/'] :is(h3,h4,span)",
+                "all": False
+            }),
+            Command(id=_id(), cmd="query", args={
+                "selector": "main section article:nth-of-type(1) :is(h3,h4)",  # catch titles not inside <a>
+                "all": False
+            }),
         ]
         return Plan(steps=steps)
+
 
     # Wikipedia search: “search wikipedia for X”
     m = re.search(r"wikipedia.* for (.+)", t)
@@ -31,6 +44,7 @@ def plan_from_text(task: str) -> Plan:
         ]
         return Plan(steps=steps)
 
+    # Gmail search
     if "gmail" in t and ("promo" in t or "promotion" in t or "promotions" in t):
         steps = [
             # Open Promotions (assumes logged-in test account)

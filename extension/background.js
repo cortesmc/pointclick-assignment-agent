@@ -6,7 +6,7 @@ let ws;
 let reconnectTimer;
 const WS_URL = "ws://127.0.0.1:8765";
 const RETRY_MS = 1500;
-const actionTypes = ["waitFor", "query", "click", "type", "scroll"];
+const actionTypes = ["waitFor", "query", "click", "type", "scroll", "switchTab", "screenshot"];
 
 let activeTabId = null;
 

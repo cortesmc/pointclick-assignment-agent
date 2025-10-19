@@ -135,6 +135,35 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 return;
             }
 
+            if (cmd === "switchTab") {
+                const { index, title, urlMatch } = args;
+                const tabs = await chrome.tabs.query({});
+                let target = null;
+
+                if (Number.isInteger(index) && tabs[index]) target = tabs[index];
+                if (!target && title) target = tabs.find(t => (t.title || "").includes(title));
+                if (!target && urlMatch) target = tabs.find(t => (t.url || "").includes(urlMatch));
+
+                if (!target) { wsSend({ id, ok: false, error: "tab_not_found" }); return; }
+
+                await chrome.tabs.update(target.id, { active: true });
+                activeTabId = target.id;
+                wsSend({ id, ok: true, data: { tabId: target.id, title: target.title, url: target.url } });
+                return;
+            }
+
+            if (cmd === "screenshot") {
+                const tabId = activeTabId ?? (await getOrCreateActiveTab());
+                const { format = "png" } = args || {};
+                try {
+                    const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format });
+                    wsSend({ id, ok: true, data: { dataUrl } });
+                } catch (e) {
+                    wsSend({ id, ok: false, error: String(e?.message || e) });
+                }
+                return;
+            }
+
             sendResponse({ id, ok: false, error: "unknown_command" });
         } catch (e) {
             sendResponse({ id, ok: false, error: String(e?.message || e) });

@@ -73,7 +73,7 @@ def main() -> None:
 
     parser.add_argument("--planner", choices=["rule","llm"], default="rule", help="Choose the planning strategy.")
     parser.add_argument("--provider", choices=["openai","anthropic"], default="openai", help="LLM provider (when --planner llm).")
-    parser.add_argument("--model", type=str, default=None, help="LLM model name override.")
+    parser.add_argument("--model", type=str, default="gpt-4o-mini", help="LLM model name override.")
     parser.add_argument("--raw", action="store_true", help="Only print raw JSON result (no pretty extras).")
 
     args = parser.parse_args()
