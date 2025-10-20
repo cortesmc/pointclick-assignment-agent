@@ -1,5 +1,9 @@
 # Point&Click Assignment Agent — README
 
+### Author : Carlos CORTES
+
+---
+
 A tiny LLM→plan→execute agent that drives your browser through a Chrome extension.
 Tested with OpenAI; Anthropic should work the same by setting the corresponding key.
 
