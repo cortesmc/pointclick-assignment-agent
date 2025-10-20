@@ -3,20 +3,8 @@
   "version": "1.0.0",
   "manifest_version": 3,
   "description": "Chrome adapter that connects to a local WebSocket controller and executes browser commands.",
-  "permissions": [
-    "tabs",
-    "scripting",
-    "activeTab",
-    "alarms",
-    "webNavigation"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  },
-  "action": {
-    "default_title": "Point&Click Adapter"
-  }
+  "permissions": ["tabs", "scripting", "activeTab", "alarms", "webNavigation"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Point&Click Adapter" }
 }

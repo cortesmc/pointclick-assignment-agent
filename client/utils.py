@@ -1,5 +1,6 @@
-import json, time, os
+# Tiny JSONL logger for traceability (server + client use the same file).
 
+import json, time, os
 RUNLOG = os.path.join(os.path.dirname(__file__), "runlog.jsonl")
 
 def log_event(event_type: str, data: dict):

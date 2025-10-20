@@ -1,46 +1,32 @@
-// Content script: executes DOM-level commands (no tabs/screenshot here)
-
-const log = (...a) => console.log("[ContentScript]", ...a);
+// DOM-only executor for waitFor/query/click/type/scroll.
+// Single onMessage listener, always calls sendResponse.
 
 async function waitForSelector(selector, timeoutMs = 10000) {
   const start = Date.now();
   if (selector && document.querySelector(selector)) return true;
-
   return new Promise((resolve, reject) => {
     const observer = new MutationObserver(() => {
-      if (document.querySelector(selector)) {
-        observer.disconnect();
-        resolve(true);
-      }
+      if (document.querySelector(selector)) { observer.disconnect(); resolve(true); }
     });
     observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
-
     const poll = setInterval(() => {
-      if (document.querySelector(selector)) {
-        clearInterval(poll);
-        observer.disconnect();
-        resolve(true);
-      }
-      if (Date.now() - start > timeoutMs) {
-        clearInterval(poll);
-        observer.disconnect();
-        reject(new Error("waitFor_timeout"));
-      }
+      if (document.querySelector(selector)) { clearInterval(poll); observer.disconnect(); resolve(true); }
+      if (Date.now() - start > timeoutMs) { clearInterval(poll); observer.disconnect(); reject(new Error("waitFor_timeout")); }
     }, 150);
   });
 }
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-function safeClick(el) {
+function safeClick(el){
   if (!el) throw new Error("element_not_found");
   el.scrollIntoView({ block: "center", inline: "center" });
   el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
   el.click();
 }
 
-function typeText(el, text, submit) {
+function typeText(el, text, submit){
   if (!el) throw new Error("element_not_found");
   el.focus();
   el.value = text ?? "";
@@ -54,24 +40,16 @@ function typeText(el, text, submit) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  // quick ping from background to check CS presence
-  if (msg?.type === "adapter:ping") {
-    sendResponse({ ok: true, type: "adapter:pong" });
-    return; // sync response
-  }
-
+  if (msg?.type === "adapter:ping") { sendResponse({ ok: true, type: "adapter:pong" }); return; }
   if (msg?.type !== "adapter:cmd") return;
 
   const { id, cmd, args = {} } = msg;
-
   (async () => {
     try {
       if (cmd === "waitFor") {
         await waitForSelector(args.selector, args.timeoutMs || 10000);
-        sendResponse({ id, ok: true, data: { waitedFor: args.selector } });
-        return;
+        sendResponse({ id, ok: true, data: { waitedFor: args.selector } }); return;
       }
-
       if (cmd === "query") {
         const { selector, all = false, attr = null, limit = null } = args;
         if (!selector) throw new Error("missing_selector");
@@ -79,55 +57,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         let out = attr ? nodes.map(n => n?.getAttribute(attr) ?? null)
                        : nodes.map(n => (n?.innerText ?? "").trim());
         if (Number.isInteger(limit)) out = out.slice(0, limit);
-        sendResponse({ id, ok: true, data: { results: out } });
-        return;
+        sendResponse({ id, ok: true, data: { results: out } }); return;
       }
-
       if (cmd === "click") {
         const { selector, xy } = args;
-        if (selector) {
-          safeClick($(selector));
-          sendResponse({ id, ok: true, data: { clicked: selector } });
-          return;
-        }
-        if (xy) {
-          const el = document.elementFromPoint(xy.x, xy.y);
-          safeClick(el);
-          sendResponse({ id, ok: true, data: { clickedXY: xy } });
-          return;
-        }
+        if (selector) { safeClick($(selector)); sendResponse({ id, ok: true, data: { clicked: selector } }); return; }
+        if (xy) { const el = document.elementFromPoint(xy.x, xy.y); safeClick(el); sendResponse({ id, ok: true, data: { clickedXY: xy } }); return; }
         throw new Error("missing_selector_or_xy");
       }
-
       if (cmd === "type") {
         const { selector, text, submit } = args;
         typeText($(selector), text, submit);
-        sendResponse({ id, ok: true, data: { typed: (text || "").length } });
-        return;
+        sendResponse({ id, ok: true, data: { typed: (text || "").length } }); return;
       }
-
       if (cmd === "scroll") {
         const { to, selector } = args;
         if (selector) {
-          const el = $(selector);
-          if (!el) throw new Error("element_not_found");
+          const el = $(selector); if (!el) throw new Error("element_not_found");
           el.scrollIntoView({ behavior: "smooth", block: "center" });
-        } else if (to === "top") {
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        } else if (to === "bottom") {
-          window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-        }
-        sendResponse({ id, ok: true, data: { scrolled: true } });
-        return;
+        } else if (to === "top") { window.scrollTo({ top: 0, behavior: "smooth" }); }
+        else if (to === "bottom") { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }
+        sendResponse({ id, ok: true, data: { scrolled: true } }); return;
       }
-
-      // Unknown command for CS
       sendResponse({ id, ok: false, error: "unknown_command" });
     } catch (e) {
       sendResponse({ id, ok: false, error: String(e?.message || e) });
     }
   })();
-
-  // async response
-  return true;
+  return true; // async
 });

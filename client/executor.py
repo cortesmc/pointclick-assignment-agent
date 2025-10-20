@@ -1,3 +1,7 @@
+# Executes a plan by talking to the adapter over WS.
+# Includes a tiny convenience: if the last step queried a '/papers/' href,
+# it opens that href in a new tab automatically.
+
 import asyncio, json
 import websockets
 from typing import Dict, Any
@@ -6,29 +10,18 @@ from urllib.parse import urljoin
 
 URI = "ws://127.0.0.1:8765"
 
-def _maybe_follow_href(plan_steps, results):
-    """
-    If the last completed step was a query for an href to /papers/,
-    automatically open it in a new tab. Returns a list of extra steps executed.
-    """
-    if not results: return []
+def _maybe_follow_href(results):
+    if not results:
+        return []
     last = results[-1]
-    if not last.get("ok"): return []
+    if not last.get("ok"):
+        return []
     data = (last.get("data") or {})
     arr = data.get("results") or []
-    if not arr: return []
-
+    if not arr or not isinstance(arr[0], str):
+        return []
     href = arr[0]
-    if not isinstance(href, str): return []
-
-    # Build absolute URL if needed (assume HF base)
-    if href.startswith("/"):
-        base = "https://huggingface.co"
-        url = urljoin(base, href)
-    else:
-        url = href
-
-    # Synthesize and run an openTab
+    url = urljoin("https://huggingface.co", href) if href.startswith("/") else href
     return [{"id": "autotab", "cmd": "openTab", "args": {"url": url, "active": True}}]
 
 async def wait_for_adapter(ws, timeout_sec=45):
@@ -66,9 +59,9 @@ async def run_step(ws, step: Dict[str, Any], timeout=30):
 
 async def run_plan(plan_steps: list[Dict[str, Any]]):
     async with websockets.connect(URI) as ws:
+        # Identify as controller and wait for the adapter to be ready
         await ws.send(json.dumps({"type": "hello", "role": "controller"}))
         _ = await ws.recv()
-
         if not await wait_for_adapter(ws, 45):
             return {"ok": False, "error": "adapter_not_connected",
                     "hint": "Load/refresh the Chrome extension (adapter) to connect to ws://127.0.0.1:8765"}
@@ -79,8 +72,8 @@ async def run_plan(plan_steps: list[Dict[str, Any]]):
             if not resp.get("ok"):
                 return {"ok": False, "failed_step": step, "resp": resp, "results": results}
             results.append(resp)
-            for step in _maybe_follow_href(plan_steps, results):
-                ex_resp = await run_step(ws, step)
+            # auto-open a found href if present
+            for s in _maybe_follow_href(results):
+                ex_resp = await run_step(ws, s)
                 results.append(ex_resp)
         return {"ok": True, "results": results}
-

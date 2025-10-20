@@ -1,81 +1,55 @@
-// MV3 background service worker — Point&Click Adapter
-// Connects to ws://127.0.0.1:8765, declares role "adapter", and routes commands
-// to the active tab's content script (DOM actions) or handles tab-level commands.
+// MV3 background service worker: connects to ws://127.0.0.1:8765 as "adapter"
+// and routes commands to the active tab's content script (DOM actions).
+// Tab-level commands (openTab, navigate, screenshot) are handled here.
 
-let ws;
-let reconnectTimer;
+let ws, reconnectTimer;
 const WS_URL = "ws://127.0.0.1:8765";
 const RETRY_MS = 1500;
-
-// Commands that require DOM access → handled by content script
 const actionTypes = ["waitFor", "query", "click", "type", "scroll", "switchTab"];
-
 let activeTabId = null;
 
-// --- WS helpers ---
 function wsSend(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
-  } else {
-    console.warn("[Adapter] WS not open; cannot send:", obj);
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  else console.warn("[Adapter] WS not open; cannot send:", obj);
 }
 
 function connectWS() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
   console.log("[Adapter] Connecting to", WS_URL);
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
     console.log("[Adapter] WS connected.");
     wsSend({ type: "hello", role: "adapter" });
-    // Optional handshake ping
     wsSend({ id: "boot-1", cmd: "ping" });
   };
 
   ws.onmessage = (evt) => {
     let msg;
-    try {
-      msg = JSON.parse(evt.data);
-    } catch {
-      console.warn("[Adapter] Invalid JSON from WS:", evt.data);
-      return;
-    }
-    // Ignore non-command payloads (role acks, status, plain responses)
-    if (!msg || !msg.cmd) {
-      console.log("[Adapter] (info) non-command message:", msg);
-      return;
-    }
+    try { msg = JSON.parse(evt.data); } catch { return; }
+    if (!msg || !msg.cmd) return;
     handleControllerCommand(msg);
   };
 
   ws.onclose = () => {
-    console.warn("[Adapter] WS closed; reconnecting in", RETRY_MS, "ms");
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connectWS, RETRY_MS);
   };
 
-  ws.onerror = (err) => {
-    console.warn("[Adapter] WS error:", err);
-    try { ws.close(); } catch {}
-  };
+  ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
-// --- Tabs helpers ---
-async function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function delay(ms){ return new Promise(r => setTimeout(r, ms)); }
 
 async function ensureContentScript(tabId) {
   try {
     const pong = await chrome.tabs.sendMessage(tabId, { type: "adapter:ping" });
     if (pong && pong.ok) return true;
-  } catch (_) {
-    // no receiver yet
-  }
+  } catch {}
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["contentScript.js"] });
   } catch (e) {
-    console.warn("[Adapter] executeScript (inject CS) error:", e);
+    console.warn("[Adapter] inject CS error:", e);
   }
   await delay(150);
   return true;
@@ -83,14 +57,10 @@ async function ensureContentScript(tabId) {
 
 async function sendToContentWithRetry(tabId, payload, attempts = 2) {
   for (let i = 0; i < attempts; i++) {
-    try {
-      const resp = await chrome.tabs.sendMessage(tabId, payload);
-      return resp; // may be undefined if CS forwards asynchronously via runtime.sendMessage
-    } catch (e) {
+    try { return await chrome.tabs.sendMessage(tabId, payload); }
+    catch (e) {
       if (String(e?.message || e).includes("Receiving end does not exist")) {
-        await ensureContentScript(tabId);
-        await delay(150);
-        continue;
+        await ensureContentScript(tabId); await delay(150); continue;
       }
       throw e;
     }
@@ -100,13 +70,9 @@ async function sendToContentWithRetry(tabId, payload, attempts = 2) {
 
 async function getOrCreateActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tabs && tabs[0]) {
-    activeTabId = tabs[0].id;
-    return tabs[0].id;
-  }
+  if (tabs && tabs[0]) { activeTabId = tabs[0].id; return tabs[0].id; }
   const created = await chrome.tabs.create({ url: "about:blank" });
-  activeTabId = created.id;
-  return activeTabId;
+  activeTabId = created.id; return activeTabId;
 }
 
 function waitForTabComplete(tabId, timeoutMs = 15000) {
@@ -120,7 +86,6 @@ function waitForTabComplete(tabId, timeoutMs = 15000) {
       }
     }
     chrome.tabs.onUpdated.addListener(listener);
-
     const t = setInterval(() => {
       if (Date.now() - start > timeoutMs) {
         chrome.tabs.onUpdated.removeListener(listener);
@@ -131,35 +96,25 @@ function waitForTabComplete(tabId, timeoutMs = 15000) {
   });
 }
 
-// --- Command handling ---
 async function handleControllerCommand(msg) {
   const { id, cmd, args = {} } = msg;
   try {
     if (cmd === "navigate") {
-      const url = args.url;
       const tabId = await getOrCreateActiveTab();
-      await chrome.tabs.update(tabId, { url });
+      await chrome.tabs.update(tabId, { url: args.url });
       await waitForTabComplete(tabId, 20000);
       await ensureContentScript(tabId);
-      wsSend({ id, ok: true, data: { tabId, url } });
+      wsSend({ id, ok: true, data: { tabId, url: args.url } });
       return;
     }
 
-    // Commands that need DOM access → content script
     if (actionTypes.includes(cmd)) {
       const tabId = activeTabId ?? (await getOrCreateActiveTab());
       await ensureContentScript(tabId);
-
       let resp;
-      try {
-        resp = await sendToContentWithRetry(tabId, { type: "adapter:cmd", id, cmd, args }, 2);
-      } catch (e) {
-        wsSend({ id, ok: false, error: String(e?.message || e) });
-        return;
-      }
-      if (resp !== undefined) {
-        wsSend(resp);
-      }
+      try { resp = await sendToContentWithRetry(tabId, { type: "adapter:cmd", id, cmd, args }, 2); }
+      catch (e) { wsSend({ id, ok: false, error: String(e?.message || e) }); return; }
+      if (resp !== undefined) wsSend(resp);  // CS may also reply via runtime.sendMessage
       return;
     }
 
@@ -167,13 +122,10 @@ async function handleControllerCommand(msg) {
       const { index, title, urlMatch } = args;
       const tabs = await chrome.tabs.query({});
       let target = null;
-
       if (Number.isInteger(index) && tabs[index]) target = tabs[index];
       if (!target && title) target = tabs.find(t => (t.title || "").includes(title));
       if (!target && urlMatch) target = tabs.find(t => (t.url || "").includes(urlMatch));
-
       if (!target) { wsSend({ id, ok: false, error: "tab_not_found" }); return; }
-
       await chrome.tabs.update(target.id, { active: true });
       activeTabId = target.id;
       wsSend({ id, ok: true, data: { tabId: target.id, title: target.title, url: target.url } });
@@ -205,47 +157,24 @@ async function handleControllerCommand(msg) {
       return;
     }
 
-    if (cmd === "ping") {
-      wsSend({ id, ok: true, data: "pong" });
-      return;
-    }
-
+    if (cmd === "ping") { wsSend({ id, ok: true, data: "pong" }); return; }
     wsSend({ id, ok: false, error: "unknown_command" });
   } catch (e) {
     wsSend({ id: msg.id, ok: false, error: String(e?.message || e) });
   }
 }
 
-// Track currently active tab
 chrome.tabs.onActivated.addListener(({ tabId }) => { activeTabId = tabId; });
 
-// ---- Lifecycle / keepalive ----
-function boot() { console.log("[Adapter] Boot."); connectWS(); }
-function setupAlarms() { chrome.alarms.create("pc_keepalive", { periodInMinutes: 4 }); }
-
+function boot(){ console.log("[Adapter] Boot."); connectWS(); }
+function setupAlarms(){ chrome.alarms.create("pc_keepalive", { periodInMinutes: 4 }); }
 chrome.runtime.onInstalled.addListener(boot);
 chrome.runtime.onStartup.addListener(boot);
 chrome.runtime.onInstalled.addListener(setupAlarms);
 chrome.runtime.onStartup.addListener(setupAlarms);
-
-chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "pc_keepalive") connectWS();
-});
-
-// Also reconnect on common lifecycle events
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === "pc_keepalive") connectWS(); });
 chrome.webNavigation.onCommitted.addListener(() => connectWS());
 chrome.tabs.onActivated.addListener(() => connectWS());
-
-// Clicking the extension icon forces a connect (handy in dev)
 chrome.action.onClicked.addListener(() => connectWS());
-
-// Receive replies from content script and forward them to the controller via WS
-chrome.runtime.onMessage.addListener((msg, sender, _sendResponse) => {
-  // Expecting messages like {id, ok, data?, error?}
-  if (msg && (msg.ok === true || msg.ok === false) && msg.id) {
-    wsSend(msg);
-  }
-});
-
-// Initial connect
+chrome.runtime.onMessage.addListener((msg) => { if (msg && (msg.ok === true || msg.ok === false) && msg.id) wsSend(msg); });
 connectWS();
