@@ -8,7 +8,7 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 from schema import validate_plan_json, Plan, Command
 
-load_dotenv()
+load_dotenv(dotenv_path="./.env")
 
 ALLOWED_CMDS = [
     "navigate", "waitFor", "query", "click", "type",

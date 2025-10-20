@@ -59,13 +59,6 @@ Here’s a visual summary of the project flow:
 From the `client` folder:
 
 ```bash
-# Create and activate a venv (PowerShell)
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-
-# Or CMD
-# .venv\Scripts\activate.bat
-
 # Install deps
 pip install -r ./requirements.txt
 ```
@@ -113,7 +106,7 @@ From `client/` (PowerShell or CMD):
 
 ```bash
 # Example: Hugging Face search (OpenAI)
-python orchestrator.py --provider openai --model gpt-4o-mini "open hugging face papers and get the latest link about transformers"
+python orchestrator.py --provider openai --model gpt-4o-mini "Find the latest paper on Hugging Face Daily Paper about UI Agents"
 ```
 
 If you want Anthropic:
