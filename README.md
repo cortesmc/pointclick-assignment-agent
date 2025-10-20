@@ -2,6 +2,7 @@
 
 ### Author : Carlos CORTES
 This project was developed on a Windows x86 system.
+
 ---
 
 A tiny LLM→plan→execute agent that drives your browser through a Chrome extension.
