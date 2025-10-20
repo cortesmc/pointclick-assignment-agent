@@ -6,28 +6,29 @@ def _id():
 
 def plan_from_text(task: str) -> Plan:
     t = task.lower().strip()
-
-    # Hugging face papers
+    
     if "hugging face" in t or "huggingface" in t:
+        # Interpret “find the latest paper about UI Agents”
         steps = [
-            Command(id=_id(), cmd="navigate", args={"url": "https://huggingface.co/papers"}),
+            # Open HF Papers (focused tab)
+            Command(id=_id(), cmd="openTab", args={"url": "https://huggingface.co/papers", "active": True}),
             Command(id=_id(), cmd="waitFor", args={"selector": "main section article", "timeoutMs": 15000}),
-            # href of first paper (kept)
-            Command(id=_id(), cmd="query", args={
+
+            # Type into the on-page search (keeps everything in-page)
+            Command(id=_id(), cmd="waitFor", args={"selector": "input[type='search']", "timeoutMs": 8000}),
+            Command(id=_id(), cmd="type",     args={"selector": "input[type='search']", "text": "UI Agents", "submit": False}),
+            Command(id=_id(), cmd="waitFor",  args={"selector": "main section article", "timeoutMs": 8000}),
+
+            # Grab first result href and open it in a NEW TAB (no stdout)
+            Command(id=_id(), cmd="query",   args={
                 "selector": "main section article:nth-of-type(1) a[href^='/papers/']",
                 "all": False, "attr": "href"
             }),
-            # title text fallbacks on the card:
-            Command(id=_id(), cmd="query", args={
-                "selector": "main section article:nth-of-type(1) a[href^='/papers/'] :is(h3,h4,span)",
-                "all": False
-            }),
-            Command(id=_id(), cmd="query", args={
-                "selector": "main section article:nth-of-type(1) :is(h3,h4)",  # catch titles not inside <a>
-                "all": False
-            }),
+            # The executor won’t print, but we still need to open the URL:
+            # Orchestrator converts the last query’s href to an absolute URL and fires an `openTab`.
         ]
         return Plan(steps=steps)
+
 
 
     # Wikipedia search: “search wikipedia for X”
@@ -46,28 +47,23 @@ def plan_from_text(task: str) -> Plan:
 
     # Gmail search
     if "gmail" in t and ("promo" in t or "promotion" in t or "promotions" in t):
+        # Open Promotions with a search filter: unread + last 3 months
+        q = "category:promotions is:unread newer_than:3m"
+        url = "https://mail.google.com/mail/u/0/#search/" + q.replace(" ", "%20")
         steps = [
-            # Open Promotions (assumes logged-in test account)
-            Command(id=_id(), cmd="navigate", args={"url": "https://mail.google.com/mail/u/0/#category/promo"}),
+            Command(id=_id(), cmd="openTab", args={"url": url, "active": True}),
             Command(id=_id(), cmd="waitFor", args={"selector": "div[role='main']", "timeoutMs": 20000}),
-            Command(id=_id(), cmd="waitFor", args={"selector": "tr.zA", "timeoutMs": 20000}),
-            # Try primary sender selector first, then two fallbacks
-            Command(id=_id(), cmd="query", args={"selector": "tr.zA.zE span.yX.xY .yW span", "all": True, "limit": 10}),
-            Command(id=_id(), cmd="query", args={"selector": "tr.zA.zE .yW span[dir='auto']", "all": True, "limit": 10}),
-            Command(id=_id(), cmd="query", args={"selector": "tr.zA.zE .yW > span", "all": True, "limit": 10}),
-            # Subject selector + fallback
-            Command(id=_id(), cmd="query", args={"selector": "tr.zA.zE span.bog", "all": True, "limit": 10}),
-            Command(id=_id(), cmd="query", args={"selector": "tr.zA.zE .bog span", "all": True, "limit": 10}),
+            Command(id=_id(), cmd="waitFor", args={"selector": "tr.zA", "timeoutMs": 15000}),
+            # Stop here — the page shows the results to the user; no scraping/printing.
         ]
         return Plan(steps=steps)
-
 
     # Default: just navigate to what looks like a URL
     url_match = re.search(r"(https?://\S+)", task)
     if url_match:
         steps = [
-            Command(id=_id(), cmd="navigate", args={"url": url_match.group(1)}),
-            Command(id=_id(), cmd="waitFor",  args={"selector": "body", "timeoutMs": 10000}),
+            Command(id=_id(), cmd="openTab", args={"url": url_match.group(1), "active": True}),
+            Command(id=_id(), cmd="waitFor", args={"selector": "body", "timeoutMs": 10000}),
         ]
         return Plan(steps=steps)
 

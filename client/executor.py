@@ -2,8 +2,34 @@ import asyncio, json
 import websockets
 from typing import Dict, Any
 from utils import log_event
+from urllib.parse import urljoin
 
 URI = "ws://127.0.0.1:8765"
+
+def _maybe_follow_href(plan_steps, results):
+    """
+    If the last completed step was a query for an href to /papers/,
+    automatically open it in a new tab. Returns a list of extra steps executed.
+    """
+    if not results: return []
+    last = results[-1]
+    if not last.get("ok"): return []
+    data = (last.get("data") or {})
+    arr = data.get("results") or []
+    if not arr: return []
+
+    href = arr[0]
+    if not isinstance(href, str): return []
+
+    # Build absolute URL if needed (assume HF base)
+    if href.startswith("/"):
+        base = "https://huggingface.co"
+        url = urljoin(base, href)
+    else:
+        url = href
+
+    # Synthesize and run an openTab
+    return [{"id": "autotab", "cmd": "openTab", "args": {"url": url, "active": True}}]
 
 async def wait_for_adapter(ws, timeout_sec=45):
     end = asyncio.get_event_loop().time() + timeout_sec
@@ -40,10 +66,12 @@ async def run_step(ws, step: Dict[str, Any], timeout=30):
 
 async def run_plan(plan_steps: list[Dict[str, Any]]):
     async with websockets.connect(URI) as ws:
-        # hello as controller
         await ws.send(json.dumps({"type": "hello", "role": "controller"}))
         _ = await ws.recv()
-        assert await wait_for_adapter(ws, 45), "Adapter not connected; reload the extension."
+
+        if not await wait_for_adapter(ws, 45):
+            return {"ok": False, "error": "adapter_not_connected",
+                    "hint": "Load/refresh the Chrome extension (adapter) to connect to ws://127.0.0.1:8765"}
 
         results = []
         for step in plan_steps:
@@ -51,4 +79,8 @@ async def run_plan(plan_steps: list[Dict[str, Any]]):
             if not resp.get("ok"):
                 return {"ok": False, "failed_step": step, "resp": resp, "results": results}
             results.append(resp)
+            for step in _maybe_follow_href(plan_steps, results):
+                ex_resp = await run_step(ws, step)
+                results.append(ex_resp)
         return {"ok": True, "results": results}
+

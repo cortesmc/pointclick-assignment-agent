@@ -1,7 +1,10 @@
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Optional, Literal, Any, Dict, List
 
-CommandName = Literal["navigate", "waitFor", "query", "click", "type", "scroll", "switchTab", "screenshot", "ping"]
+CommandName = Literal[
+    "navigate", "waitFor", "query", "click", "type",
+    "scroll", "switchTab", "screenshot", "ping", "openTab"
+]
 
 class Command(BaseModel):
     id: str = Field(..., description="Unique id string")

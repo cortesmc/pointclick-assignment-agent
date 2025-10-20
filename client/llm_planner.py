@@ -6,57 +6,56 @@ from schema import validate_plan_json, Plan, Command
 
 load_dotenv()
 
-ALLOWED_CMDS = ["navigate", "waitFor", "query", "click", "type", "scroll", "switchTab", "screenshot", "ping"]
+ALLOWED_CMDS = [
+    "navigate", "waitFor", "query", "click", "type",
+    "scroll", "switchTab", "screenshot", "ping", "openTab"
+]
 
-SYSTEM_PROMPT = """You are a planning engine that translates a natural-language user task into a
-STRICT SEQUENCE of browser commands for a Chrome extension adapter. Output MUST be STRICT JSON
-with either:
-- {"steps": [ { "id": "...", "cmd": "...", "args": { ... } }, ... ]}
-or a bare JSON array of commands.
-
+SYSTEM_PROMPT = """You are a planning engine ...
 RULES:
-- Only use these commands: navigate, waitFor, query, click, type, scroll, switchTab, screenshot, ping.
-- Always waitFor after navigation or actions that change the page.
-- Use CSS selectors for elements.
-- Prefer robust selectors (ids, roles) and include timeouts on waitFor (8000-20000 ms).
-- For scraping text, use query with { all?: boolean, attr?: string, limit?: number }.
-- For typing, set { selector, text, submit?: bool }.
-- No explanations. JSON ONLY.
+- Only use these commands: navigate, waitFor, query, click, type, scroll, switchTab, screenshot, ping, openTab.
+- Prefer 'openTab' (new tab) over 'navigate' when the goal is to show a page to the user.
+- Do NOT print results; just open the relevant tabs. Use 'query' only to fetch an href for a subsequent 'openTab'.
+- Do NOT add any date/time filter unless the USER explicitly requested a timeframe (e.g., 'last 14 days', 'last 3 months', 'since 2025-07-01').
+- When a timeframe IS requested for Gmail, use the corresponding Gmail search operator:
+  • last N days → newer_than:Nd
+  • last N weeks → newer_than:(N*7)d
+  • last N months → newer_than:Nm
+  • since YYYY-MM-DD → after:YYYY/MM/DD
+- JSON ONLY. No explanations.
 """
 
-FEWSHOTS: List[Tuple[str, List[Dict[str, Any]]]] = [
-    (
-        "open hugging face papers and get the latest link",
-        [
-            {"id":"a1","cmd":"navigate","args":{"url":"https://huggingface.co/papers"}},
-            {"id":"a2","cmd":"waitFor","args":{"selector":"main section article","timeoutMs":15000}},
-            {"id":"a3","cmd":"query","args":{"selector":"main section article:nth-of-type(1) a[href^='/papers/']","all":False,"attr":"href"}},
-            {"id":"a4","cmd":"query","args":{"selector":"main section article:nth-of-type(1) a[href^='/papers/']","all":False}}
-        ],
-    ),
-    (
-        "search wikipedia for UI Agents",
-        [
-            {"id":"b1","cmd":"navigate","args":{"url":"https://en.wikipedia.org/wiki/Special:Search"}},
-            {"id":"b2","cmd":"waitFor","args":{"selector":"#searchInput","timeoutMs":15000}},
-            {"id":"b3","cmd":"type","args":{"selector":"#searchInput","text":"UI Agents","submit":True}},
-            {"id":"b4","cmd":"waitFor","args":{"selector":"#mw-content-text","timeoutMs":15000}},
-            {"id":"b5","cmd":"scroll","args":{"to":"bottom"}},
-            {"id":"b6","cmd":"scroll","args":{"to":"top"}}
-        ],
-    ),
-    (
-        "open gmail promotions and list unread promotions",
-        [
-            {"id":"c1","cmd":"navigate","args":{"url":"https://mail.google.com/mail/u/0/#category/promo"}},
-            {"id":"c2","cmd":"waitFor","args":{"selector":"div[role='main']","timeoutMs":20000}},
-            {"id":"c3","cmd":"waitFor","args":{"selector":"tr.zA","timeoutMs":20000}},
-            {"id":"c4","cmd":"scroll","args":{"to":"bottom"}},
-            {"id":"c5","cmd":"waitFor","args":{"selector":"tr.zA","timeoutMs":5000}},
-            {"id":"c6","cmd":"query","args":{"selector":"tr.zA.zE span.yX.xY .yW span","all":True,"limit":10}},
-            {"id":"c7","cmd":"query","args":{"selector":"tr.zA.zE span.bog","all":True,"limit":10}}
-        ],
-    ),
+FEWSHOTS = [
+  (
+    "open hugging face papers and get the latest link",
+    [
+      {"id":"a1","cmd":"openTab","args":{"url":"https://huggingface.co/papers","active":True}},
+      {"id":"a2","cmd":"waitFor","args":{"selector":"main section article","timeoutMs":15000}},
+      {"id":"a3","cmd":"waitFor","args":{"selector":"input[type='search']","timeoutMs":8000}},
+      {"id":"a4","cmd":"type","args":{"selector":"input[type='search']","text":"UI Agents","submit":False}},
+      {"id":"a5","cmd":"waitFor","args":{"selector":"main section article","timeoutMs":8000}},
+      {"id":"a6","cmd":"query","args":{"selector":"main section article:nth-of-type(1) a[href^='/papers/']","all":False,"attr":"href"}}
+    ],
+  ),
+  # No timeframe requested → NO newer_than
+  (
+    "open gmail promotions and list unread promotions",
+    [
+      {"id":"g1","cmd":"openTab","args":{"url":"https://mail.google.com/mail/u/0/#search/category%3Apromotions%20is%3Aunread","active":True}},
+      {"id":"g2","cmd":"waitFor","args":{"selector":"div[role='main']","timeoutMs":20000}},
+      # Optional: drop this wait and just query; leaving it here is fine if your client tolerates empty.
+      {"id":"g3","cmd":"waitFor","args":{"selector":"tr.zA","timeoutMs":25000}}
+    ],
+  ),
+  # Timeframe requested → DO add newer_than
+  (
+    "open gmail promotions and list unread promotions from the last 14 days",
+    [
+      {"id":"g1","cmd":"openTab","args":{"url":"https://mail.google.com/mail/u/0/#search/category%3Apromotions%20is%3Aunread%20newer_than%3A14d","active":True}},
+      {"id":"g2","cmd":"waitFor","args":{"selector":"div[role='main']","timeoutMs":20000}},
+      {"id":"g3","cmd":"waitFor","args":{"selector":"tr.zA","timeoutMs":25000}}
+    ],
+  ),
 ]
 
 def _mk_id() -> str:

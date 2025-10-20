@@ -1,20 +1,22 @@
 {
+  "name": "Point&Click Adapter",
+  "version": "1.0.0",
   "manifest_version": 3,
-  "name": "Point&Click Agent Adapter",
-  "version": "0.1.0",
-  "description": "Chrome Extension bridge for Point&Click AI Agent.",
-  "permissions": ["scripting", "tabs", "storage", "activeTab"],
+  "description": "Chrome adapter that connects to a local WebSocket controller and executes browser commands.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "activeTab",
+    "alarms",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_title": "Point&Click Adapter"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }
