@@ -1,7 +1,7 @@
 # Point&Click Assignment Agent — README
 
 ### Author : Carlos CORTES
-
+This project was developed on a Windows x86 system.
 ---
 
 A tiny LLM→plan→execute agent that drives your browser through a Chrome extension.
@@ -27,9 +27,6 @@ Tested with OpenAI; Anthropic should work the same by setting the corresponding 
 * `client/schema.py` — Pydantic models for `Plan` and `Command`.
 * `client/utils.py` — JSONL logger (`runlog.jsonl`).
 
-Here’s a visual summary of the project flow:
-
-![Project Flowchart](./flowchart.png)
 
 **Chrome extension**
 
@@ -37,7 +34,11 @@ Here’s a visual summary of the project flow:
 * `extension/contentScript.js` — DOM actions: waitFor, query, click, type, scroll.
 * `extension/manifest.json` — MV3 manifest with required permissions.
 
-**Not necessary for main LLM execution**
+Here’s a visual summary of the project flow:
+
+![Project Flowchart](./flowchart.png)
+
+**Not necessary for main LLM execution, but present on the branch "v0_demos_testing"**
 
 * Demo/test helpers (e.g., `demo_type_scroll_wiki.py`, `test_controller.py`).
 * Rule-based planner (`planner.py`) if you’re using LLM-only.
@@ -65,18 +66,14 @@ python -m venv .venv
 # .venv\Scripts\activate.bat
 
 # Install deps
-pip install websockets python-dotenv pydantic openai anthropic
+pip install -r ./requirements.txt
 ```
 
 Create a `.env` file in `client/`:
 
 ```
-OPENAI_API_KEY=sk-your-openai-key
-# Optional for Anthropic:
-# ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-# Defaults (can be overridden on CLI)
-OPENAI_MODEL=gpt-4o-mini
-ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
 ---
