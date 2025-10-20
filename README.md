@@ -27,6 +27,10 @@ Tested with OpenAI; Anthropic should work the same by setting the corresponding 
 * `client/schema.py` — Pydantic models for `Plan` and `Command`.
 * `client/utils.py` — JSONL logger (`runlog.jsonl`).
 
+Here’s a visual summary of the project flow:
+
+![Project Flowchart](./flowchart.png)
+
 **Chrome extension**
 
 * `extension/background.js` — connects to WS, handles tab commands, injects content script.
